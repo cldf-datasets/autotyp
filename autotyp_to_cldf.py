@@ -3,6 +3,7 @@
 
 import csv
 import pathlib
+import itertools
 import contextlib
 from pprint import pprint
 
@@ -104,9 +105,12 @@ class Component(object):
 
         return list(itercolumns(self._columns))
 
-    def as_component(self):
+    def as_component(self, out_dir=None):
+        url = self.write(out_dir)
+        if url is None:
+            return None
         component = {
-            'url': self.write(),
+            'url': url,
             'dc:conformsTo': CLDF + self.component,
             'tableSchema': {'primaryKey': self.primary_key},
         }
@@ -203,8 +207,9 @@ class LanguageTable(Component):
         assert all(c in meta for c in self._columns)
         return list(itercolumns(meta, self._columns))
 
-    def write(self):
-        return ('..' / self.data).as_posix()  # FIXME
+    def write(self, out_dir):
+        assert out_dir is None
+        return ('../..' / self.data).as_posix()  # FIXME
 
 
 class ParameterTable(Component):
@@ -254,10 +259,8 @@ class ParameterTable(Component):
         'Notes': {'property': 'comment'},
     }
 
-    def write(self):
-        path = OUT_DIR / self.metadata.stem / 'parameters.csv'
-        if not path.parent.exists():
-            path.parent.mkdir()
+    def write(self, out_dir):
+        path = out_dir / 'parameters.csv'
         meta = yaml_load(self.metadata)
         with csv_open(path, 'w') as writer:
             cols = self._columns.keys()  # FIXME: py 3.6 dict order dependent
@@ -266,15 +269,58 @@ class ParameterTable(Component):
                 row = [variable] + [v[c] for c in cols  if c in v]
                 row = [c.strip() if isinstance(c, str) else c for c in row]
                 writer.writerow(row)
-        return path.relative_to(OUT_DIR).as_posix()
+        return path.name
+
+
+class CodeTable(Component):
+
+    component = 'CodeTable'
+
+    primary_key = ['Level']
+
+    _columns = {
+        # NOTE: composite foreign keys via virtual columns do not mix with id urls?
+        'ID': {'property': 'id', 'datatype': 'integer', 'required': True},
+        'Variable': {'property': 'parameterReference', 'required': True},
+        'Level': {'property': 'name', 'required': True},
+        # TODO: separator?
+        'Description': {'property': 'description', 'required': True},
+    }
+
+    def write(self, out_dir):
+        meta = yaml_load(self.metadata)
+        if not any('Levels' in v for v in meta.values()):
+            return None
+        path = out_dir / 'codes.csv'
+        iterids = itertools.count(1)
+        with csv_open(path, 'w') as writer:
+            cols = self._columns.keys()
+            writer.writerow(cols)
+            for variable, v in meta.items():
+                for level, desc in v.get('Levels', {}).items():
+                    row = [next(iterids), variable, level, desc.strip() or level]
+                    writer.writerow(row)
+        return path.name
 
 
 if __name__ == '__main__':
     #check_pairing()
     #df = pd.DataFrame(itermetadata()).set_index(METACOLS[:2])[METACOLS[2:]]
-    d = pycldf.StructureDataset.in_dir(OUT_DIR, empty_tables=True)
-    d.add_component(*LanguageTable().as_component())
-    d.add_component(*ParameterTable(metadata=METADATA[0]).as_component())
-    d.write_metadata()
-    pprint(next(d['LanguageTable'].iterdicts()))
-    pprint(next(d['ParameterTable'].iterdicts()))
+    for m, d in zip(METADATA, DATA):
+        out_dir = OUT_DIR / m.stem
+        if not out_dir.exists():
+            out_dir.mkdir()
+        d = pycldf.StructureDataset.in_dir(out_dir, empty_tables=True)
+        d.add_component(*LanguageTable().as_component())
+        d.add_component(*ParameterTable(metadata=m).as_component(out_dir))
+        c = CodeTable(metadata=m).as_component(out_dir)
+        if c is not None:
+            d.add_component(*c)
+        d.write_metadata()
+        print(d)
+        pprint(next(d['LanguageTable'].iterdicts()))
+        pprint(next(d['ParameterTable'].iterdicts()))
+        if c is not None:
+            pprint(next(d['CodeTable'].iterdicts()))
+        print()
+        break
