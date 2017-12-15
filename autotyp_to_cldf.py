@@ -3,12 +3,12 @@
 
 import csv
 import pathlib
+import contextlib
 from pprint import pprint
 
 import yaml
 import pandas as pd
 
-import csvw
 import pycldf
 
 OUT_DIR = pathlib.Path('cldf')
@@ -42,9 +42,16 @@ def yaml_load(filepath):
     return doc
 
 
-def csv_header(filepath, encoding=ENCODING):
-    with filepath.open(encoding=ENCODING) as f:
-        header = next(csv.reader(f))
+@contextlib.contextmanager
+def csv_open(filepath, mode='r', encoding=ENCODING, dialect='excel'):
+    result_cls = {'r': csv.reader, 'w': csv.writer}[mode]
+    with filepath.open(mode, encoding=encoding, newline='') as f:
+        yield result_cls(f)
+
+
+def csv_header(filepath, encoding=ENCODING, dialect='excel'):
+    with csv.open(filepath, encoding=encoding, dialect=dialect) as reader:
+        header = next(reader)
     return header
 
 
@@ -80,15 +87,41 @@ def load_metadata(filepath):
     return list(itervariables(module, doc))
 
 
-class LanguageTable(object):
+class Component(object):
 
-    meta, data = LANG_META, LANG
+    def __init__(self, metadata=None, data=None):
+        assert any(a is not None for a in (metadata, data))
+        self.metadata = metadata
+        self.data = data
+
+    def columns(self):
+        def itercolumns(columns):
+            for name, col in columns.items():
+                col['name'] = name
+                if 'property' in col:
+                    col['propertyUrl'] = CLDF + col.pop('property')
+                yield col
+
+        return list(itercolumns(self._columns))
+
+    def as_component(self):
+        component = {
+            'url': self.write(),
+            'dc:conformsTo': CLDF + self.component,
+            'tableSchema': {'primaryKey': self.primary_key},
+        }
+        columns = self.columns()
+        add_component_args = [component] + columns
+        return add_component_args
+
+
+class LanguageTable(Component):
 
     component = 'LanguageTable'
 
     primary_key = ['LID']
 
-    columns = {
+    _columns = {
         'LID': {
             'property': 'id',
             'datatype': 'integer',
@@ -145,14 +178,10 @@ class LanguageTable(object):
         },
     }
 
-    @classmethod
-    def as_component(cls):
-        component = {
-            'url': ('..' / cls.data).as_posix(),  # FIXME
-            'dc:conformsTo': CLDF + cls.component,
-            'tableSchema': {'primaryKey': cls.primary_key},
-        }
+    def __init__(self, metadata=LANG_META, data=LANG):
+        super(LanguageTable, self).__init__(metadata, data)
 
+    def columns(self):
         def itercolumns(meta, columns):
             for name, d in meta.items():
                 col = {
@@ -170,20 +199,82 @@ class LanguageTable(object):
                         col['propertyUrl'] = CLDF + col.pop('property')
                 yield col
 
-        meta = yaml_load(cls.meta)
-        assert all(c in meta for c in cls.columns)
+        meta = yaml_load(self.metadata)
+        assert all(c in meta for c in self._columns)
+        return list(itercolumns(meta, self._columns))
 
-        columns = list(itercolumns(meta, cls.columns))
-        add_component_args = [component] + columns
-        return add_component_args
+    def write(self):
+        return ('..' / self.data).as_posix()  # FIXME
+
+
+class ParameterTable(Component):
+
+    component = 'ParameterTable'
+
+    primary_key = ['Variable']
+
+    _columns = {
+        # skip: 'Module'
+        'Variable': {'property': 'id', 'required': True},  # FIXME: replace dot?
+        'SetUp': {
+            'datatype': {
+                'base': 'string',
+                'format': '|'.join([
+                    'single entry per language',
+                    'single aggregated entry per language',
+                    'multiple entries per language',
+                ]),
+            },
+            'required': True,
+        },
+        'DataEntry': {
+            'datatype': {'base': 'string', 'format': '|'.join(['by hand', 'derived'])},
+            'required': True,
+        },
+        'VariableType': {
+            'datatype': {
+                'base': 'string',
+                'format': '|'.join(['data', 'condition', 'register', 'details', 'quality']),
+            },
+            'required': True,
+        },
+        'DataType': {
+            'datatype': {
+                'base': 'string',
+                'format': '|'.join(['logical', 'categorical', 'ratio', 'count']),
+            },
+            'required': True,
+        },
+        'N.levels': {'datatype': 'integer', 'required': True},
+        'N.entries': {'datatype': 'integer', 'required': True},
+        'N.languages': {'datatype': 'integer', 'required': True},
+        'N.missing': {'datatype': 'integer', 'required': True},
+        # skip: 'Levels'
+        'Description': {'property': 'description', 'required': True},
+        'Notes': {'property': 'comment'},
+    }
+
+    def write(self):
+        path = OUT_DIR / self.metadata.stem / 'parameters.csv'
+        if not path.parent.exists():
+            path.parent.mkdir()
+        meta = yaml_load(self.metadata)
+        with csv_open(path, 'w') as writer:
+            cols = self._columns.keys()  # FIXME: py 3.6 dict order dependent
+            writer.writerow(cols)
+            for variable, v in meta.items():
+                row = [variable] + [v[c] for c in cols  if c in v]
+                row = [c.strip() if isinstance(c, str) else c for c in row]
+                writer.writerow(row)
+        return path.relative_to(OUT_DIR).as_posix()
 
 
 if __name__ == '__main__':
     #check_pairing()
     #df = pd.DataFrame(itermetadata()).set_index(METACOLS[:2])[METACOLS[2:]]
     d = pycldf.StructureDataset.in_dir(OUT_DIR, empty_tables=True)
-    d.add_component(*LanguageTable.as_component())
-    p = d.write_metadata()
-    tg = csvw.TableGroup.from_file(p)
-    t = tg.tables[0]
-    pprint(next(t.iterdicts()))
+    d.add_component(*LanguageTable().as_component())
+    d.add_component(*ParameterTable(metadata=METADATA[0]).as_component())
+    d.write_metadata()
+    pprint(next(d['LanguageTable'].iterdicts()))
+    pprint(next(d['ParameterTable'].iterdicts()))
