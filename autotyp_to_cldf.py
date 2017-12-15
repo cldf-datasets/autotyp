@@ -303,6 +303,21 @@ class CodeTable(Component):
         return path.name
 
 
+class ValueTable(Component):
+
+    component = 'ValueTable'
+
+    primary_key = ['ID']
+
+    _columns = {
+        'ID': {'property': 'id', 'datatype': 'integer', 'required': True},
+        'LID': {'property': 'languageReference', 'required': True},
+        'Variable': {'property': 'parameterReference', 'required': True},
+        'Value': {'property': 'value'},
+        'Level_ID': {'property': 'codeReference'},
+    }
+
+
 if __name__ == '__main__':
     #check_pairing()
     #df = pd.DataFrame(itermetadata()).set_index(METACOLS[:2])[METACOLS[2:]]
