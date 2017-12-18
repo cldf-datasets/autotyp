@@ -8,7 +8,6 @@ import contextlib
 from pprint import pprint
 
 import yaml
-import pandas as pd
 
 import pycldf
 
@@ -39,7 +38,7 @@ CLDF = 'http://cldf.clld.org/v1.0/terms.rdf#'
 
 def yaml_load(filepath):
     with filepath.open('rb') as f:
-        doc = yaml.safe_load(f)
+        doc = yaml.safe_load(f)  # NOTE: depends on mappings returned in order
     return doc
 
 
@@ -51,7 +50,7 @@ def csv_open(filepath, mode='r', encoding=ENCODING, dialect='excel'):
 
 
 def csv_header(filepath, encoding=ENCODING, dialect='excel'):
-    with csv.open(filepath, encoding=encoding, dialect=dialect) as reader:
+    with csv_open(filepath, encoding=encoding, dialect=dialect) as reader:
         header = next(reader)
     return header
 
@@ -90,6 +89,8 @@ def load_metadata(filepath):
 
 class Component(object):
 
+    foreign_keys = None
+
     def __init__(self, metadata=None, data=None):
         assert any(a is not None for a in (metadata, data))
         self.metadata = metadata
@@ -114,6 +115,8 @@ class Component(object):
             'dc:conformsTo': CLDF + self.component,
             'tableSchema': {'primaryKey': self.primary_key},
         }
+        if self.foreign_keys is not None:
+            component['tableSchema']['foreignKeys'] = self.foreign_keys
         columns = self.columns()
         add_component_args = [component] + columns
         return add_component_args
@@ -123,7 +126,7 @@ class LanguageTable(Component):
 
     component = 'LanguageTable'
 
-    primary_key = ['LID']
+    primary_key = 'LID'
 
     _columns = {
         'LID': {
@@ -166,19 +169,22 @@ class LanguageTable(Component):
             'separator': ', ',
         },        
         'ISO639.3': {
-            'property': 'iso639P3code',
-            'datatype': {'base': 'string', 'format': '[a-z]{3}'},
+            #'property': 'iso639P3code',
+            # FIXME: ['tokh', 'mixe', 'berb', 'cuic', 'esme', 'fris', 'sorb', 'chag']
+            'datatype': {'base': 'string', 'format': '[a-z]{3,4}'},
+            'null': ['', 'NA'],
         },
         'Glottocode': {
-            'property': 'glottocode',
-            'datatype': {'base': 'string', 'format': '[a-z0-9]{4}[1-9][0-9]{3}'},
+            #'property': 'glottocode',
+            # FIXME: 'jin1260'
+            'datatype': {'base': 'string', 'format': '[a-z0-9]{3,4}[1-9][0-9]{3}'},
         },
         'Macrocontinent': {
             'datatype': {
                 'base': 'string',
-                'format': '|'.join(['Africa', 'Eurasia', ' Pacific', 'Americas']),
+                'format': '|'.join(['Africa', 'Eurasia', 'Pacific', 'Americas']),
             },
-            'null': ['NA'],
+            'null': ['', 'NA'],
         },
     }
 
@@ -208,19 +214,22 @@ class LanguageTable(Component):
         return list(itercolumns(meta, self._columns))
 
     def write(self, out_dir):
-        assert out_dir is None
-        return ('../..' / self.data).as_posix()  # FIXME
+        path = out_dir / 'languages.csv'
+        with csv_open(self.data) as reader, csv_open(path, 'w') as writer:
+            writer.writerows(reader)
+        return path.name
 
 
 class ParameterTable(Component):
 
     component = 'ParameterTable'
 
-    primary_key = ['Variable']
+    primary_key = 'ID'
 
     _columns = {
-        # skip: 'Module'
-        'Variable': {'property': 'id', 'required': True},  # FIXME: replace dot?
+        'ID': {'property': 'id', 'datatype': 'integer', 'required': True},
+        'Module': {'required': True},
+        'Variable': {'property': 'name', 'required': True},
         'SetUp': {
             'datatype': {
                 'base': 'string',
@@ -261,14 +270,18 @@ class ParameterTable(Component):
 
     def write(self, out_dir):
         path = out_dir / 'parameters.csv'
-        meta = yaml_load(self.metadata)
         with csv_open(path, 'w') as writer:
-            cols = self._columns.keys()  # FIXME: py 3.6 dict order dependent
+            cols = self._columns.keys()  # NOTE: depends on py 3.6 dict order
             writer.writerow(cols)
-            for variable, v in meta.items():
-                row = [variable] + [v[c] for c in cols  if c in v]
-                row = [c.strip() if isinstance(c, str) else c for c in row]
-                writer.writerow(row)
+            pa_ids = itertools.count(1)
+            for m in self.metadata:
+                module = m.stem
+                meta = yaml_load(m)
+                for variable, v in meta.items():
+                    cols = (v[c] for c in cols if c in v)
+                    cols = [c.strip() if isinstance(c, str) else c for c in cols]
+                    row = [next(pa_ids), module, variable] + cols
+                    writer.writerow(row)
         return path.name
 
 
@@ -276,30 +289,30 @@ class CodeTable(Component):
 
     component = 'CodeTable'
 
-    primary_key = ['Level']
+    primary_key = 'ID'
 
     _columns = {
-        # NOTE: composite foreign keys via virtual columns do not mix with id urls?
         'ID': {'property': 'id', 'datatype': 'integer', 'required': True},
-        'Variable': {'property': 'parameterReference', 'required': True},
+        'Variable': {'property': 'parameterReference', 'datatype': 'integer', 'required': True},
         'Level': {'property': 'name', 'required': True},
         # TODO: separator?
         'Description': {'property': 'description', 'required': True},
     }
 
     def write(self, out_dir):
-        meta = yaml_load(self.metadata)
-        if not any('Levels' in v for v in meta.values()):
-            return None
         path = out_dir / 'codes.csv'
-        iterids = itertools.count(1)
         with csv_open(path, 'w') as writer:
             cols = self._columns.keys()
             writer.writerow(cols)
-            for variable, v in meta.items():
-                for level, desc in v.get('Levels', {}).items():
-                    row = [next(iterids), variable, level, desc.strip() or level]
-                    writer.writerow(row)
+            co_ids, pa_ids = (itertools.count(1) for _ in range(2))
+            for m in self.metadata:
+                module = m.stem
+                meta = yaml_load(m)
+                for variable, v in meta.items():
+                    pa_id = next(pa_ids)
+                    for level, desc in v.get('Levels', {}).items():
+                        row = [next(co_ids), pa_id, level, desc.strip() or level]
+                        writer.writerow(row)
         return path.name
 
 
@@ -307,35 +320,74 @@ class ValueTable(Component):
 
     component = 'ValueTable'
 
-    primary_key = ['ID']
+    primary_key = 'ID'
 
     _columns = {
         'ID': {'property': 'id', 'datatype': 'integer', 'required': True},
-        'LID': {'property': 'languageReference', 'required': True},
-        'Variable': {'property': 'parameterReference', 'required': True},
+        'Variable_ID': {'property': 'parameterReference', 'datatype': 'integer', 'required': True},
+        # FIXME: 2915, 3000 missing
+        'LID': {'property': 'languageReference', 'datatype': 'integer', 'required': True},
         'Value': {'property': 'value'},
-        'Level_ID': {'property': 'codeReference'},
+        'Level_ID': {'property': 'codeReference', 'datatype': 'integer'},
     }
+
+    # NOTE: languageReference alone requires columnReference 'ID'
+    foreign_keys = [
+        {
+            'columnReference': 'LID',
+            'reference': {
+                'resource': 'languages.csv',
+                'columnReference': 'LID',
+            },
+        },
+    ]
+
+    def write(self, out_dir):
+        path = out_dir / 'values.csv'
+        with csv_open(path, 'w') as writer:
+            cols = self._columns.keys()
+            writer.writerow(cols)
+            va_ids, co_ids, pa_ids = (itertools.count(1) for _ in range(3))
+            for m, d in zip(self.metadata, self.data):
+                meta = yaml_load(m)
+                with csv_open(d) as reader:
+                    cols = zip(*reader)
+                    lids = next(cols)
+                    assert lids[0] == 'LID'
+                    values = list(cols)
+                    assert len(values) == len(meta)
+                for (variable, v), var_col  in zip(meta.items(), values):
+                    pa_id = next(pa_ids)
+                    assert var_col[0] == variable
+                    pairs = zip(lids[1:], var_col[1:])
+                    if 'Levels' in v:
+                        levels = {'': None}
+                        levels.update((l, next(co_ids)) for l in v['Levels'])
+                        rows = ((next(va_ids), pa_id, lid, None, levels[var_value])
+                                 for lid, var_value in pairs)
+                    else:
+                        rows = ((next(va_ids), pa_id, lid, var_value, None)
+                                 for lid, var_value in pairs)
+                    writer.writerows(rows)
+        return path.name
 
 
 if __name__ == '__main__':
     #check_pairing()
+    #import pandas as pd
     #df = pd.DataFrame(itermetadata()).set_index(METACOLS[:2])[METACOLS[2:]]
-    for m, d in zip(METADATA, DATA):
-        out_dir = OUT_DIR / m.stem
-        if not out_dir.exists():
-            out_dir.mkdir()
-        d = pycldf.StructureDataset.in_dir(out_dir, empty_tables=True)
-        d.add_component(*LanguageTable().as_component())
-        d.add_component(*ParameterTable(metadata=m).as_component(out_dir))
-        c = CodeTable(metadata=m).as_component(out_dir)
-        if c is not None:
-            d.add_component(*c)
-        d.write_metadata()
-        print(d)
-        pprint(next(d['LanguageTable'].iterdicts()))
-        pprint(next(d['ParameterTable'].iterdicts()))
-        if c is not None:
-            pprint(next(d['CodeTable'].iterdicts()))
-        print()
-        break
+    out_dir = OUT_DIR
+    if not out_dir.exists():
+        out_dir.mkdir()
+    d = pycldf.StructureDataset.in_dir(out_dir, empty_tables=True)
+    d.add_component(*LanguageTable().as_component(out_dir))
+    d.add_component(*ParameterTable(metadata=METADATA).as_component(out_dir))
+    d.add_component(*CodeTable(metadata=METADATA).as_component(out_dir))
+    d.add_component(*ValueTable(metadata=METADATA, data=DATA).as_component(out_dir))
+    print(d)
+    pprint(next(d['LanguageTable'].iterdicts()))
+    pprint(next(d['ParameterTable'].iterdicts()))
+    pprint(next(d['CodeTable'].iterdicts()))
+    pprint(next(d['ValueTable'].iterdicts()))
+    #d.validate()  # FIXME: fails (see above), ~5GB peak mem
+    #d.stats()  # FIXME: ~4GB peak mem
