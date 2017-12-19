@@ -89,8 +89,6 @@ def load_metadata(filepath):
 
 class Component(object):
 
-    foreign_keys = None
-
     def __init__(self, metadata=None, data=None):
         assert any(a is not None for a in (metadata, data))
         self.metadata = metadata
@@ -110,23 +108,14 @@ class Component(object):
         url = self.write(out_dir)
         if url is None:
             return None
-        component = {
-            'url': url,
-            'dc:conformsTo': CLDF + self.component,
-            'tableSchema': {'primaryKey': self.primary_key},
-        }
-        if self.foreign_keys is not None:
-            component['tableSchema']['foreignKeys'] = self.foreign_keys
-        columns = self.columns()
-        add_component_args = [component] + columns
+        component = {'url': url, 'dc:conformsTo': CLDF + self.component}
+        add_component_args = [component] + self.columns()
         return add_component_args
 
 
 class LanguageTable(Component):
 
     component = 'LanguageTable'
-
-    primary_key = 'LID'
 
     _columns = {
         'LID': {
@@ -224,8 +213,6 @@ class ParameterTable(Component):
 
     component = 'ParameterTable'
 
-    primary_key = 'ID'
-
     _columns = {
         'ID': {'property': 'id', 'datatype': 'integer', 'required': True},
         'Module': {'required': True},
@@ -289,8 +276,6 @@ class CodeTable(Component):
 
     component = 'CodeTable'
 
-    primary_key = 'ID'
-
     _columns = {
         'ID': {'property': 'id', 'datatype': 'integer', 'required': True},
         'Variable': {'property': 'parameterReference', 'datatype': 'integer', 'required': True},
@@ -320,8 +305,6 @@ class ValueTable(Component):
 
     component = 'ValueTable'
 
-    primary_key = 'ID'
-
     _columns = {
         'ID': {'property': 'id', 'datatype': 'integer', 'required': True},
         'Variable_ID': {'property': 'parameterReference', 'datatype': 'integer', 'required': True},
@@ -330,17 +313,6 @@ class ValueTable(Component):
         'Value': {'property': 'value'},
         'Level_ID': {'property': 'codeReference', 'datatype': 'integer'},
     }
-
-    # NOTE: languageReference alone requires columnReference 'ID'
-    foreign_keys = [
-        {
-            'columnReference': 'LID',
-            'reference': {
-                'resource': 'languages.csv',
-                'columnReference': 'LID',
-            },
-        },
-    ]
 
     def write(self, out_dir):
         path = out_dir / 'values.csv'
@@ -390,4 +362,4 @@ if __name__ == '__main__':
     pprint(next(d['CodeTable'].iterdicts()))
     pprint(next(d['ValueTable'].iterdicts()))
     #d.validate()  # FIXME: fails (see above), ~5GB peak mem
-    #d.stats()  # FIXME: ~4GB peak mem
+    d.stats()
