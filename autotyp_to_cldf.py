@@ -361,5 +361,5 @@ if __name__ == '__main__':
     pprint(next(d['ParameterTable'].iterdicts()))
     pprint(next(d['CodeTable'].iterdicts()))
     pprint(next(d['ValueTable'].iterdicts()))
-    #d.validate()  # FIXME: fails (see above), ~5GB peak mem
+    d.validate()  # FIXME: fails (see above)
     d.stats()
