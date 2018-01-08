@@ -933,7 +933,6 @@ Example mó ‘female’","Dependent-Head"
 748,,FALSE,"neutral",,"juxtaposition","Adj",0,"",,"OK",FALSE,"Juxtaposition",694,"neutral","neutral",,,"Dependent-Head"
 403,,FALSE,"neutral",,,"N_or_Pro",1,"203",,,,,317,,,FALSE,,
 411,,TRUE,"default",,,,0,"646","agreement/class marker",,TRUE,"Dep-driven agreement",425,,,,,
-3000,,,,,"agreement","Adj",0,"","agreement/class marker",,TRUE,"Head-driven agreement",895,,,,,
 561,,,,,"agreement","Adj",0,"","agreement/class marker",,TRUE,"Head-driven agreement",886,,,,,
 2477,,,,,,"Adj",0,"",,"ungrammatical",,"Incorporation",978,,,,,
 455,,FALSE,"neutral",,,"nonSAP",0,"","mixed",,TRUE,"Dep-driven agr. + Governed",557,,,,,
@@ -1040,7 +1039,6 @@ Example mó ‘female’","Dependent-Head"
 515,,FALSE,"neutral",,"juxtaposition","Adj,N_or_Pro",0,"",,,FALSE,"Juxtaposition",568,,,,,"Head-Dependent"
 726,,,,,"agreement","Adj",0,"","agreement/class marker",,TRUE,"Head-driven agreement",922,,,,,
 35,,FALSE,"neutral",,"agreement",,0,"8","agreement/class marker",,TRUE,"Modifier-headed possessor agreement",526,,,,,"Dependent-Head"
-3000,,,,,,"Adj",0,"","mixed",,TRUE,"HDAgr+NMLZ",894,,,,,
 2506,,,,,"agreeing construct","Adj",0,"","construct markers",,TRUE,"Anti-construct state agreement",904,,,,,"Dependent-Head"
 23,,,,,,"S",0,"",,,,,655,,,,,"Head-Dependent"
 98,,,,,"agreeing construct","Adj",0,"","construct markers",,TRUE,"Anti-construct state agreement",887,,,,,
