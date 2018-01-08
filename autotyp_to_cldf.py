@@ -158,14 +158,12 @@ class LanguageTable(Component):
             'separator': ', ',
         },        
         'ISO639.3': {
-            #'property': 'iso639P3code',
-            # FIXME: ['tokh', 'mixe', 'berb', 'cuic', 'esme', 'fris', 'sorb', 'chag']
+            'property': 'iso639P3code',
             'datatype': {'base': 'string', 'format': '[a-z]{3,4}'},
             'null': ['', 'NA'],
         },
         'Glottocode': {
-            #'property': 'glottocode',
-            # FIXME: 'jin1260'
+            'property': 'glottocode',
             'datatype': {'base': 'string', 'format': '[a-z0-9]{3,4}[1-9][0-9]{3}'},
         },
         'Macrocontinent': {
@@ -308,7 +306,6 @@ class ValueTable(Component):
     _columns = {
         'ID': {'property': 'id', 'datatype': 'integer', 'required': True},
         'Variable_ID': {'property': 'parameterReference', 'datatype': 'integer', 'required': True},
-        # FIXME: 2915, 3000 missing
         'LID': {'property': 'languageReference', 'datatype': 'integer', 'required': True},
         'Value': {'property': 'value'},
         'Level_ID': {'property': 'codeReference', 'datatype': 'integer'},
@@ -344,22 +341,35 @@ class ValueTable(Component):
         return path.name
 
 
-if __name__ == '__main__':
-    #check_pairing()
-    #import pandas as pd
-    #df = pd.DataFrame(itermetadata()).set_index(METACOLS[:2])[METACOLS[2:]]
-    out_dir = OUT_DIR
+def main(out_dir=OUT_DIR):
     if not out_dir.exists():
         out_dir.mkdir()
+
     d = pycldf.StructureDataset.in_dir(out_dir, empty_tables=True)
+    d.properties.update({
+        'dc:title': 'AUTOTYP data export',
+        'dc:description': 'Data export of the AUTOTYP database as CLDF dataset',
+        'dc:license': {'@id': 'https://creativecommons.org/licenses/by/4.0/'},
+    })
+
     d.add_component(*LanguageTable().as_component(out_dir))
     d.add_component(*ParameterTable(metadata=METADATA).as_component(out_dir))
     d.add_component(*CodeTable(metadata=METADATA).as_component(out_dir))
     d.add_component(*ValueTable(metadata=METADATA, data=DATA).as_component(out_dir))
-    print(d)
-    pprint(next(d['LanguageTable'].iterdicts()))
-    pprint(next(d['ParameterTable'].iterdicts()))
-    pprint(next(d['CodeTable'].iterdicts()))
-    pprint(next(d['ValueTable'].iterdicts()))
-    d.validate()  # FIXME: fails (see above)
-    d.stats()
+    d.write_metadata()
+
+    for component in ['LanguageTable', 'ParameterTable', 'CodeTable', 'ValueTable']:
+        pprint(next(d[component].iterdicts()))
+        print()
+
+    d.validate()
+
+    for table, component, n in d.stats():
+        print(table, component, n, sep='\t')
+
+
+if __name__ == '__main__':
+    #check_pairing()
+    #import pandas as pd
+    #df = pd.DataFrame(itermetadata()).set_index(METACOLS[:2])[METACOLS[2:]]
+    main()
