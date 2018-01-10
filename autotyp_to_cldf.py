@@ -45,8 +45,11 @@ def yaml_load(filepath):
 @contextlib.contextmanager
 def csv_open(filepath, mode='r', encoding=ENCODING, dialect='excel'):
     result_cls = {'r': csv.reader, 'w': csv.writer}[mode]
-    with filepath.open(mode, encoding=encoding, newline='') as f:
+    f = filepath.open(mode, encoding=encoding, newline='')
+    try:
         yield result_cls(f)
+    finally:
+        f.close()
 
 
 def csv_header(filepath, encoding=ENCODING, dialect='excel'):
